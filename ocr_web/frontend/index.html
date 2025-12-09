@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OCR Upload</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 2rem auto;
+            padding: 0 20px;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        textarea {
+            width: 100%;
+            height: 300px;
+        }
+
+        .structured-data {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+
+        .data-section {
+            margin-bottom: 15px;
+        }
+
+        .data-section h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+
+        .data-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .data-list li {
+            background: white;
+            padding: 5px 10px;
+            margin: 2px 0;
+            border-radius: 3px;
+            border-left: 3px solid #4CAF50;
+        }
+
+        .json-viewer {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+
+        form {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .tabs {
+            margin-bottom: 20px;
+        }
+
+        .tab-button {
+            background: #e0e0e0;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+            margin-right: 5px;
+        }
+
+        .tab-button.active {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 20px;
+            border-radius: 0 5px 5px 5px;
+            border: 1px solid #ddd;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>OCR Upload</h1>
+    <form id="uploadForm">
+        <div style="margin-bottom: 15px;">
+            <input type="file" id="fileInput" name="file" accept="image/*,application/pdf" required />
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label>OCR Mode:
+                <select name="mode" id="modeSelect">
+                    <option value="tesseract" selected>Tesseract OCR</option>
+                </select>
+            </label>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label>
+                <input type="checkbox" name="ensemble" id="ensembleCheck" value="true" />
+                Ensemble mode (run OCR multiple times)
+            </label>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label>
+                Runs: <input type="number" name="runs" id="runsInput" value="3" min="1" max="10" style="width:50px" />
+            </label>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label>
+                <input type="checkbox" name="structured" id="structuredCheck" checked />
+                Extract structured data
+            </label>
+        </div>
+        <button type="submit">Upload & OCR</button>
+    </form>
+
+    <h2>Results</h2>
+    <div id="result">No result yet</div>
+    <div id="debug"
+        style="margin-top: 20px; padding: 10px; background: #f0f0f0; font-family: monospace; font-size: 12px;"></div>
+
+    <!-- Verification Section -->
+    <hr style="margin: 40px 0; border: 2px solid #ddd;">
+
+    <h1>📋 Document Verification</h1>
+    <p style="color: #666;">Upload two documents (PAN, Aadhaar, or Passbook) to verify if they belong to the same
+        person.</p>
+
+    <form id="verifyForm" style="background: #e8f5e9; border-left: 4px solid #4CAF50;">
+        <div style="margin-bottom: 15px;">
+            <label><strong>Document 1:</strong></label>
+            <input type="file" id="file1Input" name="file1" accept="image/*,application/pdf" required />
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label><strong>Document 2:</strong></label>
+            <input type="file" id="file2Input" name="file2" accept="image/*,application/pdf" required />
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label>
+                <input type="checkbox" name="ensemble" id="verifyEnsembleCheck" value="true" />
+                Ensemble mode (better accuracy, slower)
+            </label>
+        </div>
+        <button type="submit"
+            style="background: #4CAF50; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">
+            🔍 Verify Documents
+        </button>
+    </form>
+
+    <h2>Verification Results</h2>
+    <div id="verifyResult">No verification yet</div>
+
+    <script>
+        // Get elements
+        const form = document.getElementById('uploadForm');
+        const result = document.getElementById('result');
+        const debug = document.getElementById('debug');
+
+        // Debug function
+        function log(msg) {
+            console.log(msg);
+            if (debug) {
+                debug.innerHTML += new Date().toLocaleTimeString() + ': ' + msg + '<br>';
+                debug.scrollTop = debug.scrollHeight;
+            }
+        }
+
+        // Tab switching
+        function showTab(tabName, buttonElement) {
+            log('Switching to tab: ' + tabName);
+
+            // Hide all tabs
+            const tabs = document.querySelectorAll('.tab-content');
+            tabs.forEach(tab => tab.classList.remove('active'));
+
+            // Remove active from buttons
+            const buttons = document.querySelectorAll('.tab-button');
+            buttons.forEach(btn => btn.classList.remove('active'));
+
+            // Show selected tab
+            const selectedTab = document.getElementById(tabName);
+            if (selectedTab) {
+                selectedTab.classList.add('active');
+            }
+
+            // Activate button
+            if (buttonElement) {
+                buttonElement.classList.add('active');
+            }
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        // Display structured data
+        function displayStructuredData(data) {
+            log('Displaying structured data for: ' + (data.document_type || 'Unknown'));
+
+            const html = [];
+
+            // Tabs
+            html.push('<div class="tabs">');
+            html.push('<button class="tab-button active" onclick="showTab(\'structured\', this)">Structured Data</button>');
+            html.push('<button class="tab-button" onclick="showTab(\'raw\', this)">Raw Text</button>');
+            html.push('<button class="tab-button" onclick="showTab(\'json\', this)">JSON View</button>');
+            html.push('</div>');
+
+            // Structured Data Tab
+            html.push('<div id="structured" class="tab-content active">');
+            html.push('<h2>' + escapeHtml(data.document_type || 'Document') + ' Details</h2>');
+
+            if (data.document_type === 'Aadhaar Card') {
+                const fields = ['name', 'aadhaar_number', 'date_of_birth', 'gender', 'mobile', 'pincode', 'enrollment_number'];
+                fields.forEach(field => {
+                    if (data[field]) {
+                        const label = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        html.push('<div class="data-section">');
+                        html.push('<h3>' + label + '</h3>');
+                        html.push('<div class="data-list"><li>' + escapeHtml(data[field]) + '</li></div>');
+                        html.push('</div>');
+                    }
+                });
+            } else if (data.document_type === 'PAN Card') {
+                const fields = ['name', 'pan_number', 'father_name', 'date_of_birth', 'type'];
+                fields.forEach(field => {
+                    if (data[field]) {
+                        const label = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        html.push('<div class="data-section">');
+                        html.push('<h3>' + label + '</h3>');
+                        html.push('<div class="data-list"><li>' + escapeHtml(data[field]) + '</li></div>');
+                        html.push('</div>');
+                    }
+                });
+            } else if (data.document_type === 'Bank Passbook/Statement') {
+                const fields = ['account_holder_name', 'account_number', 'bank_name', 'branch_name', 'ifsc_code', 'micr_code', 'balance', 'address', 'contact'];
+                fields.forEach(field => {
+                    if (data[field]) {
+                        const label = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        html.push('<div class="data-section">');
+                        html.push('<h3>' + label + '</h3>');
+                        html.push('<div class="data-list"><li>' + escapeHtml(data[field]) + '</li></div>');
+                        html.push('</div>');
+                    }
+                });
+            } else {
+                // General document
+                Object.keys(data).forEach(key => {
+                    if (key !== 'document_type' && key !== 'raw_text' && data[key]) {
+                        html.push('<div class="data-section">');
+                        html.push('<h3>' + escapeHtml(key) + '</h3>');
+                        if (Array.isArray(data[key])) {
+                            html.push('<ul class="data-list">');
+                            data[key].forEach(item => {
+                                html.push('<li>' + escapeHtml(item) + '</li>');
+                            });
+                            html.push('</ul>');
+                        } else {
+                            html.push('<div class="data-list"><li>' + escapeHtml(data[key]) + '</li></div>');
+                        }
+                        html.push('</div>');
+                    }
+                });
+            }
+            html.push('</div>');
+
+            // Raw Text Tab
+            html.push('<div id="raw" class="tab-content">');
+            html.push('<h3>Raw OCR Text</h3>');
+            html.push('<textarea readonly>' + escapeHtml(data.raw_text || '') + '</textarea>');
+            html.push('</div>');
+
+            // JSON Tab
+            html.push('<div id="json" class="tab-content">');
+            html.push('<h3>Complete JSON Response</h3>');
+            html.push('<div class="json-viewer">' + JSON.stringify(data, null, 2) + '</div>');
+            html.push('</div>');
+
+            return html.join('');
+        }
+
+        // Form submission
+        form.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            log('Form submitted');
+            result.innerHTML = '<div style="padding: 20px; text-align: center;">Processing...</div>';
+
+            try {
+                const formData = new FormData(form);
+
+                // Log form data
+                log('Form data:');
+                for (let [key, value] of formData.entries()) {
+                    log('  ' + key + ': ' + value);
+                }
+
+                log('Sending fetch request...');
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                log('Response status: ' + response.status);
+
+                // Always try to get the response body, even for errors
+                let json;
+                try {
+                    json = await response.json();
+                    log('Response received successfully');
+                    console.log('Response:', json);
+                } catch (e) {
+                    // If we can't parse JSON, just continue
+                    log('Could not parse response as JSON');
+                }
+
+                // Check if the response has an error
+                if (!response.ok || (json && json.error)) {
+                    if (json && json.error) {
+                        throw new Error(json.error);
+                    } else {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                }
+
+                result.innerHTML = '';
+
+                // If we get here, there was no error in the response
+                if (json && json.error) {
+                    log('Error in response: ' + json.error);
+                    result.innerHTML = '<div style="color: red; padding: 20px;">Error: ' + escapeHtml(json.error) + '</div>';
+                    if (json.traceback) {
+                        result.innerHTML += '<details><pre>' + escapeHtml(json.traceback) + '</pre></details>';
+                    }
+                    return;
+                }
+
+                if (json.structured_data) {
+                    // Check if the extracted text is meaningful
+                    const rawText = json.structured_data.raw_text || '';
+                    // Only reject if it's ALL lowercase letters with spaces (common for OCR errors)
+                    const isAllLowercase = /^[a-z\s]+$/.test(rawText.trim()) && rawText.trim().length > 15;
+                    const hasMeaningfulText = rawText.length > 10 && !isAllLowercase;
+
+                    if (!hasMeaningfulText) {
+                        log('No meaningful text extracted - appears to be gibberish or unreadable');
+                        result.innerHTML = '<div style="color: orange; padding: 20px;">' +
+                            '<h3>Unable to extract readable text</h3>' +
+                            '<p>The OCR engine could not extract meaningful text from this image. This could be because:</p>' +
+                            '<ul style="text-align: left; display: inline-block;">' +
+                            '<li>The image quality is too low</li>' +
+                            '<li>The text is handwritten or stylized</li>' +
+                            '<li>The image is a sample/dummy document with scrambled text</li>' +
+                            '<li>Lighting or contrast issues</li>' +
+                            '</ul>' +
+                            '<p><strong>Suggestion:</strong> Try using a clearer, higher quality image with standard printed text.</p>' +
+                            '</div>';
+                    } else {
+                        log('Displaying structured data');
+                        result.innerHTML = displayStructuredData(json.structured_data);
+                    }
+                } else if (json.raw_text || json.text) {
+                    log('Displaying raw text');
+                    result.innerHTML = '<h3>Extracted Text</h3>';
+                    result.innerHTML += '<textarea readonly>' + escapeHtml(json.raw_text || json.text || '(no text)') + '</textarea>';
+                } else {
+                    log('No text extracted');
+                    result.innerHTML = '<div style="color: orange; padding: 20px;">No text extracted from image</div>';
+                }
+
+            } catch (error) {
+                log('Error: ' + error.message);
+                console.error('Error:', error);
+                result.innerHTML = '<div style="color: red; padding: 20px;">Error: ' + escapeHtml(error.message) + '</div>';
+            }
+        });
+
+        log('Page loaded');
+
+        // Verification form handler
+        const verifyForm = document.getElementById('verifyForm');
+        const verifyResult = document.getElementById('verifyResult');
+
+        verifyForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            log('Verification form submitted');
+            verifyResult.innerHTML = '<div style="padding: 20px; text-align: center;">Processing verification...</div>';
+
+            try {
+                const formData = new FormData(verifyForm);
+
+                log('Sending verification request...');
+                const response = await fetch('/verify', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                log('Verification response status: ' + response.status);
+
+                let json;
+                try {
+                    json = await response.json();
+                    log('Verification response received');
+                    console.log('Verification:', json);
+                } catch (e) {
+                    log('Could not parse verification response as JSON');
+                }
+
+                if (!response.ok || (json && json.error)) {
+                    if (json && json.error) {
+                        throw new Error(json.error);
+                    } else {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                }
+
+                // Display verification results
+                displayVerificationResults(json);
+
+            } catch (error) {
+                log('Verification error: ' + error.message);
+                console.error('Error:', error);
+                verifyResult.innerHTML = '<div style="color: red; padding: 20px;">Error: ' + escapeHtml(error.message) + '</div>';
+            }
+        });
+
+        function displayVerificationResults(data) {
+            const verification = data.verification;
+            const doc1 = data.document1;
+            const doc2 = data.document2;
+
+            // Status color
+            let statusColor = '#f44336'; // red for FAILED
+            let statusIcon = '❌';
+            if (verification.status === 'VERIFIED') {
+                statusColor = '#4CAF50'; // green
+                statusIcon = '✅';
+            } else if (verification.status === 'PARTIAL') {
+                statusColor = '#FF9800'; // orange
+                statusIcon = '⚠️';
+            }
+
+            const html = [];
+
+            // Status header
+            html.push('<div style="background: ' + statusColor + '; color: white; padding: 20px; border-radius: 5px; margin-bottom: 20px;">');
+            html.push('<h2 style="margin: 0;">' + statusIcon + ' ' + verification.status + '</h2>');
+            html.push('<p style="margin: 10px 0 0 0;">Confidence: ' + verification.overall_confidence + '%</p>');
+            html.push('</div>');
+
+            // Comparison table
+            html.push('<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">');
+            html.push('<thead><tr style="background: #f5f5f5;">');
+            html.push('<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Field</th>');
+            html.push('<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">' + escapeHtml(doc1.filename) + '</th>');
+            html.push('<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">' + escapeHtml(doc2.filename) + '</th>');
+            html.push('<th style="padding: 10px; border: 1px solid #ddd; text-align: center;">Match</th>');
+            html.push('</tr></thead><tbody>');
+
+            // Document type row
+            html.push('<tr>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;"><strong>Document Type</strong></td>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;">' + escapeHtml(doc1.data.document_type || 'Unknown') + '</td>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;">' + escapeHtml(doc2.data.document_type || 'Unknown') + '</td>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">-</td>');
+            html.push('</tr>');
+
+            // Name row
+            html.push('<tr>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;"><strong>Name</strong></td>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;">' + escapeHtml(verification.name_match.value1 || 'Not found') + '</td>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;">' + escapeHtml(verification.name_match.value2 || 'Not found') + '</td>');
+
+            let nameMatchIcon = verification.name_match.matched ? '✅' : '❌';
+            let nameMatchColor = verification.name_match.matched ? '#4CAF50' : '#f44336';
+            html.push('<td style="padding: 10px; border: 1px solid #ddd; text-align: center; color: ' + nameMatchColor + ';">');
+            html.push(nameMatchIcon + ' ' + verification.name_match.similarity + '%');
+            html.push('</td>');
+            html.push('</tr>');
+
+            // DOB row
+            html.push('<tr>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;"><strong>Date of Birth</strong></td>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;">' + escapeHtml(verification.dob_match.value1 || 'Not found') + '</td>');
+            html.push('<td style="padding: 10px; border: 1px solid #ddd;">' + escapeHtml(verification.dob_match.value2 || 'Not found') + '</td>');
+
+            let dobMatchIcon = '❓';
+            let dobMatchColor = '#999';
+            if (verification.dob_match.matched === true) {
+                dobMatchIcon = '✅';
+                dobMatchColor = '#4CAF50';
+            } else if (verification.dob_match.matched === false) {
+                dobMatchIcon = '❌';
+                dobMatchColor = '#f44336';
+            }
+            html.push('<td style="padding: 10px; border: 1px solid #ddd; text-align: center; color: ' + dobMatchColor + ';">');
+            html.push(dobMatchIcon + ' ' + escapeHtml(verification.dob_match.message));
+            html.push('</td>');
+            html.push('</tr>');
+
+            html.push('</tbody></table>');
+
+            // Details section
+            html.push('<details style="margin-top: 20px;">');
+            html.push('<summary style="cursor: pointer; padding: 10px; background: #f5f5f5; border-radius: 5px;">View Full Extracted Data</summary>');
+            html.push('<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">');
+
+            // Document 1
+            html.push('<div>');
+            html.push('<h3>' + escapeHtml(doc1.filename) + '</h3>');
+            html.push('<pre style="background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto;">' + JSON.stringify(doc1.data, null, 2) + '</pre>');
+            html.push('</div>');
+
+            // Document 2
+            html.push('<div>');
+            html.push('<h3>' + escapeHtml(doc2.filename) + '</h3>');
+            html.push('<pre style="background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto;">' + JSON.stringify(doc2.data, null, 2) + '</pre>');
+            html.push('</div>');
+
+            html.push('</div>');
+            html.push('</details>');
+
+            verifyResult.innerHTML = html.join('');
+        }
+    </script>
+</body>
+
+</html>
